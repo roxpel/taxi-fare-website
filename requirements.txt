@@ -1,1 +1,4 @@
 streamlit
+folium
+streamlit-folium
+streamlit-javascript

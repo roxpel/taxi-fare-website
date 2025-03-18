@@ -1,107 +1,175 @@
-import datetime
-import requests
 import streamlit as st
-from streamlit_folium import st_folium  # Updated from folium_static
+import requests
+import pandas as pd
+import numpy as np
+import datetime
 import folium
-import urllib.parse
+from streamlit_folium import folium_static
 
-# 🌍 Set page config
-st.set_page_config(page_title="NY Taxi Fare Predictor", page_icon="🚖", layout="wide")
+# Helper function to calculate distance
+def haversine_distance(lat1, lon1, lat2, lon2):
+    """Calculate the great circle distance between two points on the earth (specified in decimal degrees)"""
+# Convert decimal degrees to radians
+    lon1, lat1, lon2, lat2 = map(np.radians, [lon1, lat1, lon2, lat2])
 
-# 🎽 App Title
-st.markdown("# Taxi Fare Prediction App")
-st.markdown("## Predict the fare of your taxi ride in New York City with an interactive map.")
+# Haversine formula
+    dlon = lon2 - lon1
+    dlat = lat2 - lat1
+    a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+    c = 2 * np.arcsin(np.sqrt(a))
+    r = 6371  # Radius of earth in kilometers
+    return c * r
 
-# 🔑 Mapbox API Key (Move this to the top before calling API functions)
-mapbox_access_token = 'pk.eyJ1Ijoia3Jva3JvYiIsImEiOiJja2YzcmcyNDkwNXVpMnRtZGwxb2MzNWtvIn0.69leM_6Roh26Ju7Lqb2pwQ'
+# Set page configuration
+st.set_page_config(
+	page_title="NY Taxi Fare Predictor",
+	page_icon="🚕",
+	layout="wide"
+)
 
-# 🚖 Initialize Session State Variables
-if "pickup_location" not in st.session_state:
-    st.session_state["pickup_location"] = "Times Square, NY"
-if "dropoff_location" not in st.session_state:
-    st.session_state["dropoff_location"] = "JFK Airport, NY"
-if "pickup_datetime" not in st.session_state:
-    st.session_state["pickup_datetime"] = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-if "pickup_latitude" not in st.session_state or "pickup_longitude" not in st.session_state:
-    st.session_state["pickup_latitude"], st.session_state["pickup_longitude"] = None, None
-if "dropoff_latitude" not in st.session_state or "dropoff_longitude" not in st.session_state:
-    st.session_state["dropoff_latitude"], st.session_state["dropoff_longitude"] = None, None
+# App title and description
+st.title("NY Taxi Fare Predictor")
+st.markdown("Predict the fare of your taxi ride in New York City")
 
-# 🏩 Convert locations to coordinates (Mapbox API)
-def get_coordinates(location):
-    """Fetch latitude & longitude from Mapbox API"""
-    location_encoded = urllib.parse.quote(location)
-    url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{location_encoded}.json?access_token={mapbox_access_token}&limit=10"
+# Sidebar for inputs
+with st.sidebar:
+	st.header("Ride Details")
 
-    response = requests.get(url)
-    if response.status_code == 200:
-        data = response.json()
-        if "features" in data and len(data["features"]) > 0:
-            lon, lat = data["features"][0]["center"]
-            return lat, lon
-    return None, None
+	# Date and time
+	pickup_date = st.date_input("Pickup Date", datetime.date.today())
+	pickup_time = st.time_input("Pickup Time", datetime.time(12, 0))
 
-# 🌇 Update locations dynamically when user types
-def update_location():
-    """Update the coordinates when user enters a new location"""
-    if st.session_state["pickup_location"]:
-        st.session_state["pickup_latitude"], st.session_state["pickup_longitude"] = get_coordinates(st.session_state["pickup_location"])
-    if st.session_state["dropoff_location"]:
-        st.session_state["dropoff_latitude"], st.session_state["dropoff_longitude"] = get_coordinates(st.session_state["dropoff_location"])
+	# Passenger count
+	passenger_count = st.slider("Number of Passengers", 1, 8, 1)
 
-# Initialize default coordinates
-update_location()
+	# API URL (hidden from UI)
+	api_url = "https://taxifare.lewagon.ai/predict"
 
-# 🚖 User Inputs
-st.subheader("Select Your Locations")
-pickup_location = st.text_input("Pickup Location", st.session_state["pickup_location"], key="pickup_location", on_change=update_location)
-dropoff_location = st.text_input("Dropoff Location", st.session_state["dropoff_location"], key="dropoff_location", on_change=update_location)
+# Main content area
+col1, col2 = st.columns([2, 1])
 
-# 🏩 Ensure valid coordinates exist
-pickup_lat, pickup_lon = st.session_state.get("pickup_latitude"), st.session_state.get("pickup_longitude")
-dropoff_lat, dropoff_lon = st.session_state.get("dropoff_latitude"), st.session_state.get("dropoff_longitude")
+with col1:
+	st.subheader("Select Pickup and Dropoff Locations")
 
-if (pickup_lat is None or pickup_lon is None) or (dropoff_lat is None or dropoff_lon is None):
-    st.warning("Invalid location coordinates. Please enter a valid address.")
-else:
-    # 🏩 **Render Interactive Map**
-    st.subheader("Interactive Route Map")
-    m = folium.Map(location=[pickup_lat, pickup_lon], zoom_start=12)
-    folium.Marker([pickup_lat, pickup_lon], popup="Pickup", icon=folium.Icon(color="green")).add_to(m)
-    folium.Marker([dropoff_lat, dropoff_lon], popup="Dropoff", icon=folium.Icon(color="red")).add_to(m)
-    folium.PolyLine([[pickup_lat, pickup_lon], [dropoff_lat, dropoff_lon]], color="blue", weight=5).add_to(m)
-    st_folium(m, height=400)
+	# Initialize default map centered on NYC
+	m = folium.Map(location=[40.7128, -74.0060], zoom_start=11)
 
-# 🚖 **Fare Prediction**
-st.subheader("Fare Prediction")
-if st.button("Predict Fare"):
-    if None in [pickup_lat, pickup_lon, dropoff_lat, dropoff_lon]:
-        st.warning("Invalid location coordinates. Please enter a valid address.")
-    else:
-        ride_data = {
-            "pickup_datetime": st.session_state["pickup_datetime"],
-            "pickup_longitude": float(pickup_lon) if pickup_lon else 0.0,
-            "pickup_latitude": float(pickup_lat) if pickup_lat else 0.0,
-            "dropoff_longitude": float(dropoff_lon) if dropoff_lon else 0.0,
-            "dropoff_latitude": float(dropoff_lat) if dropoff_lat else 0.0,
-            "passenger_count": 1
-        }
+	# Create a container for the map
+	map_container = st.container()
 
-        try:
-            api_url = "https://taxifare.lewagon.ai/predict"
-            response = requests.get(f"{api_url}?{'&'.join([f'{k}={v}' for k,v in ride_data.items()])}")
-            if response.status_code == 200:
-                result = response.json()
-                if "fare" in result:
-                    predicted_fare = round(result["fare"], 2)
-                    st.success(f"Predicted Fare: **${predicted_fare}**")
-                else:
-                    st.error("Error: API response did not contain a fare value.")
-            else:
-                st.error(f"Error: {response.status_code} - {response.text}")
-        except Exception as e:
-            st.error(f"Error: {str(e)}")
+	# Coordinates input
+	st.subheader("Coordinates")
+	pickup_col, dropoff_col = st.columns(2)
 
-# 🗽 Footer
+	with pickup_col:
+		st.markdown("**Pickup Location**")
+		pickup_lat = st.number_input("Pickup Latitude", value=40.7614, format="%.6f")
+		pickup_lon = st.number_input("Pickup Longitude", value=-73.9776, format="%.6f")
+
+		# Add marker for pickup
+		folium.Marker(
+			[pickup_lat, pickup_lon],
+			popup="Pickup",
+			icon=folium.Icon(color="green", icon="play", prefix="fa")
+		).add_to(m)
+
+	with dropoff_col:
+		st.markdown("**Dropoff Location**")
+		dropoff_lat = st.number_input("Dropoff Latitude", value=40.6413, format="%.6f")
+		dropoff_lon = st.number_input("Dropoff Longitude", value=-73.7781, format="%.6f")
+
+		# Add marker for dropoff
+		folium.Marker(
+			[dropoff_lat, dropoff_lon],
+			popup="Dropoff",
+			icon=folium.Icon(color="red", icon="stop", prefix="fa")
+		).add_to(m)
+
+	# Add line between pickup and dropoff
+	folium.PolyLine(
+		locations=[[pickup_lat, pickup_lon], [dropoff_lat, dropoff_lon]],
+		color="blue",
+		weight=5,
+		opacity=0.7
+	).add_to(m)
+
+	# Display the map
+	with map_container:
+		folium_static(m)
+
+with col2:
+	st.subheader("Fare Prediction")
+
+	# Create prediction button
+	if st.button("Predict Fare", type="primary"):
+		# Combine date and time
+		pickup_datetime = datetime.datetime.combine(
+			pickup_date,
+			pickup_time
+		).strftime("%Y-%m-%d %H:%M:%S")
+
+		# Prepare data for prediction
+		ride_data = {
+			"pickup_datetime": pickup_datetime,
+			"pickup_longitude": float(pickup_lon),
+			"pickup_latitude": float(pickup_lat),
+			"dropoff_longitude": float(dropoff_lon),
+			"dropoff_latitude": float(dropoff_lat),
+			"passenger_count": int(passenger_count)
+		}
+
+		# Show the data being sent
+		st.json(ride_data)
+
+		try:
+			# Call prediction API
+			with st.spinner("Calculating fare..."):
+				# Build query string manually to match the original format
+				query_params = '&'.join([f"{key}={value}" for key, value in ride_data.items()])
+				url = f"{api_url}?{query_params}"
+
+				response = requests.get(url)
+
+				if response.status_code == 200:
+					# Extract prediction
+					result = response.json()
+					predicted_fare = result.get('fare', 0)
+
+					# Display prediction
+					st.success(f"Predicted Fare: ${predicted_fare:.2f}")
+
+					# Display additional information
+					st.info(f"Distance: Approximately {haversine_distance(pickup_lat, pickup_lon, dropoff_lat, dropoff_lon):.2f} km")
+				else:
+					st.error(f"Error: {response.status_code} - {response.text}")
+		except Exception as e:
+			st.error(f"Error: {str(e)}")
+
+	# Display some statistics or information
+	st.subheader("Fare Estimation Details")
+	st.markdown("""
+	The fare prediction is based on:
+	- Distance between pickup and dropoff
+	- Time of day and day of week
+	- Number of passengers
+	- Historical fare data
+	""")
+
+	# Add a simple fare breakdown
+	st.subheader("Typical Fare Components")
+	components = {
+		"Base fare": "$2.50",
+		"Per mile": "$2.50",
+		"Per minute (in traffic)": "$0.50",
+		"Airport fee (if applicable)": "$5.00",
+		"Tolls": "Varies"
+	}
+
+	for component, value in components.items():
+		st.text(f"{component}: {value}")
+
+
+
+# Footer
 st.markdown("---")
-st.markdown("© 2025 NY Taxi Fare Predictor | Built with Streamlit & Folium")
+st.markdown("© 2025 NY Taxi Fare Predictor | Built with Streamlit")

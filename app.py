@@ -9,48 +9,38 @@ import urllib.parse
 st.set_page_config(page_title="NY Taxi Fare Predictor", page_icon="🚕", layout="wide")
 
 # 🏷️ App Title
-st.title("NY Taxi Fare Predictor")
-st.markdown("Predict the fare of your taxi ride in New York City with an interactive map.")
+st.markdown("# Taxi Fare Prediction App")
+st.markdown("## Predict the fare of your taxi ride in New York City with an interactive map.")
 
-# 🎯 Sidebar Inputs
-with st.sidebar:
-    st.header("Ride Details")
-    pickup_date = st.date_input("Pickup Date", datetime.date.today())
-    pickup_time = st.time_input("Pickup Time", datetime.time(12, 0))
-    passenger_count = st.slider("Number of Passengers", 1, 8, 1)
+# 🔑 Mapbox API Key (Move this to the top before calling API functions)
+mapbox_access_token = 'pk.eyJ1Ijoia3Jva3JvYiIsImEiOiJja2YzcmcyNDkwNXVpMnRtZGwxb2MzNWtvIn0.69leM_6Roh26Ju7Lqb2pwQ';
 
-# 🚖 Default Locations
-default_locations = {
-    "pickup_location": "Times Square, New York",
-    "dropoff_location": "JFK Airport, New York",
-}
+# 🚖 Initialize Session State Variables
+if "pickup_location" not in st.session_state:
+    st.session_state["pickup_location"] = ""
+if "dropoff_location" not in st.session_state:
+    st.session_state["dropoff_location"] = ""
 
-# 🌍 Store in session state
-for key, value in default_locations.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
-
-# 🌍 Default Coordinates
-default_coords = {
-    "pickup_latitude": 40.7614,
-    "pickup_longitude": -73.9776,
-    "dropoff_latitude": 40.6413,
-    "dropoff_longitude": -73.7781
-}
-
-for key, value in default_coords.items():
-    if key not in st.session_state:
-        st.session_state[key] = value
+if "pickup_latitude" not in st.session_state:
+    st.session_state["pickup_latitude"] = None
+if "pickup_longitude" not in st.session_state:
+    st.session_state["pickup_longitude"] = None
+if "dropoff_latitude" not in st.session_state:
+    st.session_state["dropoff_latitude"] = None
+if "dropoff_longitude" not in st.session_state:
+    st.session_state["dropoff_longitude"] = None
 
 # 🗺 Convert locations to coordinates (Mapbox API)
-mapbox_access_token = "pk.eyJ1Ijoia3Jva3JvYiIsImEiOiJja2YzcmcyNDkwNXVpMnRtZGwxb2MzNWtvIn0.69leM_6Roh26Ju7Lqb2pwQ"
-
 def get_coordinates(location):
     """Fetch latitude & longitude from Mapbox API"""
     location_encoded = urllib.parse.quote(location)
     url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{location_encoded}.json?access_token={mapbox_access_token}&limit=10"
 
     response = requests.get(url)
+    print(f"API Request: {url}")
+    print(f"Response Status Code: {response.status_code}")
+    print(f"Response JSON: {response.json()}")  # Logs API response
+
     if response.status_code == 200:
         data = response.json()
         if "features" in data and len(data["features"]) > 0:
@@ -58,61 +48,40 @@ def get_coordinates(location):
             return lat, lon
     return None, None
 
-def get_suggestions(query):
-    """Fetch address suggestions from Mapbox with increased results"""
-    if not query:
-        return []
 
-    url = f"https://api.mapbox.com/geocoding/v5/mapbox.places/{urllib.parse.quote(query)}.json?access_token={mapbox_access_token}&limit=25&country=us&types=address"
+# 🏙️ Update locations dynamically when user types
+def update_location():
+    """Update the coordinates when user enters a new location"""
+    if st.session_state["pickup_location"]:
+        lat, lon = get_coordinates(st.session_state["pickup_location"])
+        if lat and lon:
+            st.session_state["pickup_latitude"], st.session_state["pickup_longitude"] = lat, lon
+        else:
+            st.warning(f"Could not find coordinates for {st.session_state['pickup_location']}")
 
-    response = requests.get(url)
+    if st.session_state["dropoff_location"]:
+        lat, lon = get_coordinates(st.session_state["dropoff_location"])
+        if lat and lon:
+            st.session_state["dropoff_latitude"], st.session_state["dropoff_longitude"] = lat, lon
+        else:
+            st.warning(f"Could not find coordinates for {st.session_state['dropoff_location']}")
 
-    # Debugging: Print API response in the terminal
-    print(f"API Request: {url}")
-    print(f"Response Status Code: {response.status_code}")
-    print(f"Response JSON: {response.json()}")  # Check if data is correctly fetched
-
-    if response.status_code == 200:
-        data = response.json()
-        return [feature["place_name"] for feature in data.get("features", [])]
-
-    return []
-
-# 🏙️ User selects pickup/dropoff locations (ONLY ONE INPUT EACH)
+# 🚖 User Inputs: Free text fields instead of selectbox
 st.subheader("Select Your Locations")
 
-# Fetch pickup location suggestions and use selectbox
-pickup_suggestions = get_suggestions(st.session_state["pickup_location"])
-pickup_location = st.selectbox(
+pickup_location = st.text_input(
     "Pickup Location",
-    options=pickup_suggestions if pickup_suggestions else [st.session_state["pickup_location"]],
-    key="pickup"
+    st.session_state["pickup_location"],
+    key="pickup_location",
+    on_change=update_location
 )
 
-# Fetch dropoff location suggestions and use selectbox
-dropoff_suggestions = get_suggestions(st.session_state["dropoff_location"])
-dropoff_location = st.selectbox(
+dropoff_location = st.text_input(
     "Dropoff Location",
-    options=dropoff_suggestions if dropoff_suggestions else [st.session_state["dropoff_location"]],
-    key="dropoff"
+    st.session_state["dropoff_location"],
+    key="dropoff_location",
+    on_change=update_location
 )
-
-# 🔄 Update locations dynamically
-if st.button("Update Locations"):
-    pickup_lat, pickup_lon = get_coordinates(pickup_location)
-    dropoff_lat, dropoff_lon = get_coordinates(dropoff_location)
-
-    if pickup_lat and dropoff_lat:
-        st.session_state["pickup_location"] = pickup_location
-        st.session_state["dropoff_location"] = dropoff_location
-        st.session_state["pickup_latitude"] = pickup_lat
-        st.session_state["pickup_longitude"] = pickup_lon
-        st.session_state["dropoff_latitude"] = dropoff_lat
-        st.session_state["dropoff_longitude"] = dropoff_lon
-
-        st.rerun()  # 🚀 Refresh UI
-    else:
-        st.error("Could not find coordinates for one or both locations. Try another address.")
 
 # 🗺 Ensure valid coordinates exist
 pickup_lat = st.session_state.get("pickup_latitude")
@@ -121,7 +90,7 @@ dropoff_lat = st.session_state.get("dropoff_latitude")
 dropoff_lon = st.session_state.get("dropoff_longitude")
 
 if None in [pickup_lat, pickup_lon, dropoff_lat, dropoff_lon]:
-    st.warning("Invalid location coordinates. Please update the locations.")
+    st.warning("Invalid location coordinates. Please enter a valid address.")
 else:
     # 🗺 **Render Interactive Map**
     st.subheader("Interactive Route Map")
@@ -141,16 +110,20 @@ else:
 # 🚖 **Fare Prediction**
 st.subheader("Fare Prediction")
 
-if st.button("Predict Fare"):
-    pickup_datetime = datetime.datetime.combine(pickup_date, pickup_time).strftime("%Y-%m-%d %H:%M:%S")
+if (st.session_state["pickup_location"] and (pickup_lat is None or pickup_lon is None)) or \
+   (st.session_state["dropoff_location"] and (dropoff_lat is None or dropoff_lon is None)):
+    st.warning("Invalid location coordinates. Please enter a valid address.")
+
+else:
+    # Proceed with prediction
+    pickup_datetime = datetime.datetime.combine(datetime.date.today(), datetime.datetime.now().time()).strftime("%Y-%m-%d %H:%M:%S")
 
     ride_data = {
-        "pickup_datetime": pickup_datetime,
-        "pickup_longitude": float(st.session_state["pickup_longitude"]),
-        "pickup_latitude": float(st.session_state["pickup_latitude"]),
-        "dropoff_longitude": float(st.session_state["dropoff_longitude"]),
-        "dropoff_latitude": float(st.session_state["dropoff_latitude"]),
-        "passenger_count": int(passenger_count)
+        "pickup_longitude": float(st.session_state["pickup_longitude"]) if st.session_state["pickup_longitude"] else 0.0,
+        "pickup_latitude": float(st.session_state["pickup_latitude"]) if st.session_state["pickup_latitude"] else 0.0,
+        "dropoff_longitude": float(st.session_state["dropoff_longitude"]) if st.session_state["dropoff_longitude"] else 0.0,
+        "dropoff_latitude": float(st.session_state["dropoff_latitude"]) if st.session_state["dropoff_latitude"] else 0.0,
+        "passenger_count": 1
     }
 
     try:
@@ -168,6 +141,7 @@ if st.button("Predict Fare"):
             st.error(f"Error: {response.status_code} - {response.text}")
     except Exception as e:
         st.error(f"Error: {str(e)}")
+
 
 # 🔽 Footer
 st.markdown("---")

@@ -119,7 +119,7 @@ with col2:
 		}
 
 		# Show the data being sent
-		st.json(ride_data)
+		#st.json(ride_data)
 
 		try:
 			# Call prediction API
